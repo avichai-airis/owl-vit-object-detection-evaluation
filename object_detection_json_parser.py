@@ -8,6 +8,7 @@ import os
 from scipy.stats import pearsonr, gaussian_kde
 import matplotlib.pyplot as plt
 import numpy as np
+from concurrent.futures import ThreadPoolExecutor
 
 
 def draw_bounding_boxes_and_save(frame,frame_name,video_name, objs,output_base_path, threshold=0.5):
@@ -213,16 +214,22 @@ def create_collage_plot(gun_frames, images_base_dir, threshold=0.2, output_path=
         cv2.imwrite(output_path, long_image)
 
 
+def process_annotation_file(annotation_file, frames_path,output_save_base_path, threshold=0.2):
+    gun_frames = extract_gun_frames(annotation_file, threshold)
+
+    output_path = os.path.join(output_save_base_path,f'/gun_{annotation_file.stem}.png')
+    create_collage_plot(gun_frames, frames_path, threshold, output_path)
+
 if __name__ == '__main__':
-    annotation_dir_path = Path(
-        "/home/ubuntu/Data/json_object_detection")
-    frames_path =  Path(
-        "/home/ubuntu/Data/videos_for_ob")
-    annotation_files = [f for f in os.listdir(annotation_dir_path) if f.endswith('.json')]
-    
-    for annotation in tqdm(annotation_files):
-        gun_frames = extract_gun_frames(Path(annotation), threshold=0.2)
-        create_collage_plot(gun_frames, frames_path, threshold=0.2, output_path=f'/home/ubuntu/projects/owl-vit-object-detection-evaluation/results/gun_02_{Path(annotation).name}.png')
+    annotation_dir_path = Path("/home/ubuntu/Data/json_object_detection")
+    frames_path = Path("/home/ubuntu/Data/videos_for_ob")
+    annotation_files = [f for f in annotation_dir_path.iterdir() if f.suffix == '.json']
+    threshold = 0.5
+    th_str = str(threshold).replace('.', '_')
+    output_save_base_path = Path(f"/home/ubuntu/projects/owl-vit-object-detection-evaluation/results/detection_threshold_{th_str}")
+    os.makedirs(output_save_base_path, exist_ok=True)
+    with ThreadPoolExecutor() as executor:
+        list(tqdm(executor.map(lambda f: process_annotation_file(f, frames_path,output_save_base_path, threshold), annotation_files), total=len(annotation_files)))
     exit(0)
     # detections per class histogram
     class_counts = count_detections_per_class(annotation_dir_path)
