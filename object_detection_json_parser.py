@@ -156,18 +156,17 @@ def plot_confidence_histogram(confidence_scores):
     plt.show()
 
 
-def extract_gun_frames(annotation_dir_path: Path, threshold=0.5):
-    annotation_files = [f for f in os.listdir(annotation_dir_path) if f.endswith('.json')]
+def extract_gun_frames(annotation_file: Path, threshold=0.5):
     gun_frames = []
 
-    for annotation_file in tqdm(annotation_files):
-        annotation = read_annotation_file(annotation_dir_path / Path(annotation_file))
-        for frame_name, frame in annotation.items():
-            for obj in frame['objects']:
-                if obj['class'] == 'gun' and obj['confidence'] > threshold:
-                    # frame_name, frame_data, video_name
-                    gun_frames.append((frame_name, frame, annotation_file.split('_object_detection')[0]))
-                    break
+    
+    annotation = read_annotation_file(annotation_dir_path / Path(annotation_file))
+    for frame_name, frame in annotation.items():
+        for obj in frame['objects']:
+            if obj['class'] == 'gun' and obj['confidence'] > threshold:
+                # frame_name, frame_data, video_name
+                gun_frames.append((frame_name, frame, annotation_file.as_posix().split('_object_detection')[0]))
+                break
 
     return gun_frames
 
@@ -216,13 +215,15 @@ def create_collage_plot(gun_frames, images_base_dir, threshold=0.2, output_path=
 
 if __name__ == '__main__':
     annotation_dir_path = Path(
-        "C:/Users/avich/Projects/Data/objects_tracking_dataset/Ben_data/json_object_detection")
+        "/home/ubuntu/Data/json_object_detection")
     frames_path =  Path(
-        "C:/Users/avich/Projects/Data/objects_tracking_dataset/Ben_data/knifes/knife_1/sampled_images")
-
-    gun_frames = extract_gun_frames(annotation_dir_path, threshold=0.2)
-    create_collage_plot(gun_frames, frames_path, threshold=0.2, output_path='C:/Users/avich/Projects/owl_vit_object_detection_evaluation/results/videos_with_annotation/gun_02.png')
-
+        "/home/ubuntu/Data/videos_for_ob")
+    annotation_files = [f for f in os.listdir(annotation_dir_path) if f.endswith('.json')]
+    
+    for annotation in tqdm(annotation_files):
+        gun_frames = extract_gun_frames(Path(annotation), threshold=0.2)
+        create_collage_plot(gun_frames, frames_path, threshold=0.2, output_path=f'/home/ubuntu/projects/owl-vit-object-detection-evaluation/results/gun_02_{Path(annotation).name}.png')
+    exit(0)
     # detections per class histogram
     class_counts = count_detections_per_class(annotation_dir_path)
     plot_detections_per_class(class_counts)
