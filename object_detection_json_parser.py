@@ -9,6 +9,7 @@ from scipy.stats import pearsonr, gaussian_kde
 import matplotlib.pyplot as plt
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
+import math
 
 
 def draw_bounding_boxes_and_save(frame, frame_name, video_name, objs, output_base_path, threshold=0.5):
@@ -46,7 +47,7 @@ def load_json_files(json_path: str) -> dict:
 
 
 # Example usage
-def calculate_normalized_correlation(annotation_dir_path: Path):
+def calculate_normalized_correlation(annotation_dir_path: Path, save_path=None):
     annotation_files = [f for f in os.listdir(annotation_dir_path) if f.endswith(".json")]
     sizes = []
     confidences = []
@@ -79,7 +80,11 @@ def calculate_normalized_correlation(annotation_dir_path: Path):
     plt.xlabel("Normalized Object Size")
     plt.ylabel("Confidence Score")
     plt.title("Correlation between Normalized Object Size and Confidence Score")
-    plt.show()
+    plot_name = "normalized_correlation.png"
+    if save_path:
+        Path(save_path,plot_name).as_posix()
+    else:
+        plt.show()
 
 
 def count_detections_per_class(annotation_dir_path: Path):
@@ -97,7 +102,7 @@ def count_detections_per_class(annotation_dir_path: Path):
     return class_counts
 
 
-def plot_detections_per_class(class_counts):
+def plot_detections_per_class(class_counts, save_path=None):
     classes = list(class_counts.keys())
     counts = list(class_counts.values())
 
@@ -105,7 +110,11 @@ def plot_detections_per_class(class_counts):
     plt.xlabel("Class")
     plt.ylabel("Number of Detections")
     plt.title("Number of Detections per Class (Rifle vs. Knife)")
-    plt.show()
+    plot_name = "detections_per_class.png"
+    if save_path:
+        plt.savefig(Path(save_path,plot_name).as_posix())
+    else:
+        plt.show()
 
 
 def count_detections_per_video(annotation_dir_path: Path):
@@ -121,14 +130,18 @@ def count_detections_per_video(annotation_dir_path: Path):
     return video_detections
 
 
-def plot_detections_histogram(video_detections):
+def plot_detections_histogram(video_detections, save_path=None):
     detection_counts = list(video_detections.values())
 
     plt.hist(detection_counts, bins=10, color="blue", alpha=0.7)
     plt.xlabel("Number of Detections")
     plt.ylabel("Number of Videos")
     plt.title("Histogram of Detections per Video")
-    plt.show()
+    plot_name = "detections_per_video.png"
+    if save_path:
+        Path(save_path,plot_name).as_posix()
+    else:
+        plt.show()
 
 
 def extract_confidence_scores(annotation_dir_path: Path):
@@ -147,7 +160,7 @@ def extract_confidence_scores(annotation_dir_path: Path):
     return confidence_scores
 
 
-def plot_confidence_histogram(confidence_scores):
+def plot_confidence_histogram(confidence_scores, save_path=None):
     plt.figure(figsize=(10, 5))
 
     for class_name, scores in confidence_scores.items():
@@ -157,7 +170,11 @@ def plot_confidence_histogram(confidence_scores):
     plt.ylabel("Number of Detections")
     plt.title("Histogram of Confidence Scores by Class")
     plt.legend(loc="upper right")
-    plt.show()
+    plot_name = "confidence_histogram.png"
+    if save_path:
+        Path(save_path,plot_name).as_posix()
+    else:
+        plt.show()
 
 
 def extract_class_frames(annotation_file: Path, threshold=0.5, class_name="gun"):
@@ -195,8 +212,6 @@ def create_collage_plot(frames, images_base_dir, class_name, threshold=0.2, outp
             all_frames.append(frame)
 
     if all_frames:
-        import math
-
         # Determine the number of rows and columns needed
         total_images = len(all_frames)
         num_cols = math.ceil(math.sqrt(total_images))
@@ -257,15 +272,18 @@ def draw_bounding_boxes_for_class_and_confidence_intervals(images_base_dir, anno
 
 
 if __name__ == "__main__":
-    images_base_dir = Path("/home/ubuntu/Data/obj_det_eval_dataset/videos_frame_samples")
-    annotation_dir_path = Path("/home/ubuntu/Data/obj_det_eval_dataset/obj_detection_json")
+    # Set the base directories
+    proj_base_dir = Path("/home/ubuntu/projects/owl-vit-object-detection-evaluation")
+    data_base_dir = Path("/home/ubuntu/Data/obj_det_eval_dataset")
 
+    images_base_dir = Path(data_base_dir,"videos_frame_samples")
+    annotation_dir_path = Path(data_base_dir,"obj_detection_json")
+    output_base_path = Path(proj_base_dir, "results")
+    plot_graph_base_path = Path(proj_base_dir,output_base_path, "plots")
     class_name = "rifle"
-    output_base_path = Path("/home/ubuntu/projects/owl-vit-object-detection-evaluation/results")
 
     draw_bounding_boxes_for_class_and_confidence_intervals(images_base_dir, annotation_dir_path, class_name, output_base_path)
 
-    exit(0)
     # detections per class histogram
     class_counts = count_detections_per_class(annotation_dir_path)
     plot_detections_per_class(class_counts)
