@@ -222,7 +222,7 @@ def create_collage_plot(frames, images_base_dir, class_name, threshold=0.2, outp
         cv2.imwrite(output_path, long_image)
 
 
-def process_annotation_file(annotation_file, images_base_dir, output_save_base_path, class_name, threshold=0.2):
+def draw_bounding_boxes_for_class_and_confidence_interval(annotation_file, images_base_dir, output_save_base_path, class_name, threshold=0.2):
     frames = extract_class_frames(annotation_file, threshold, class_name)
     # print(f"images_base_dir: {images_base_dir}")
 
@@ -231,31 +231,40 @@ def process_annotation_file(annotation_file, images_base_dir, output_save_base_p
     create_collage_plot(frames, images_base_dir, class_name, threshold, output_path)
 
 
+def draw_bounding_boxes_for_class_and_confidence_intervals(images_base_dir, annotation_dir_path, class_name, output_base_path, run_parallel=True):
+    annotation_files = [f for f in annotation_dir_path.iterdir() if f.suffix == ".json"]
+    thresholds = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    for threshold in thresholds:
+        th_str = str(threshold).replace(".", "_")
+        output_save_base_path = Path(output_base_path, f"{class_name}_1000/detection_threshold_{th_str}")
+        os.makedirs(output_save_base_path, exist_ok=True)
+        if run_parallel:
+            with ThreadPoolExecutor() as executor:
+                list(
+                    tqdm(
+                        executor.map(
+                            lambda f: draw_bounding_boxes_for_class_and_confidence_interval(
+                                f, images_base_dir, output_save_base_path, class_name, threshold
+                            ),
+                            annotation_files,
+                        ),
+                        total=len(annotation_files),
+                    )
+                )
+        else:
+            for annotation_file in tqdm(annotation_files):
+                draw_bounding_boxes_for_class_and_confidence_interval(annotation_file, images_base_dir, output_save_base_path, class_name, threshold)
+
+
 if __name__ == "__main__":
     images_base_dir = Path("/home/ubuntu/Data/obj_det_eval_dataset/videos_frame_samples")
     annotation_dir_path = Path("/home/ubuntu/Data/obj_det_eval_dataset/obj_detection_json")
-    annotation_files = [f for f in annotation_dir_path.iterdir() if f.suffix == ".json"]
-    thresholds = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+
     class_name = "rifle"
-    for threshold in thresholds:
-        th_str = str(threshold).replace(".", "_")
-        output_save_base_path = Path(
-            f"/home/ubuntu/projects/owl-vit-object-detection-evaluation/results/{class_name}_1000/detection_threshold_{th_str}"
-        )
-        os.makedirs(output_save_base_path, exist_ok=True)
-        # process_annotation_file(annotation_files[0], images_base_dir, output_save_base_path, threshold)
-        with ThreadPoolExecutor() as executor:
-            list(
-                tqdm(
-                    executor.map(
-                        lambda f: process_annotation_file(
-                            f, images_base_dir, output_save_base_path, class_name, threshold
-                        ),
-                        annotation_files,
-                    ),
-                    total=len(annotation_files),
-                )
-            )
+    output_base_path = Path("/home/ubuntu/projects/owl-vit-object-detection-evaluation/results")
+
+    draw_bounding_boxes_for_class_and_confidence_intervals(images_base_dir, annotation_dir_path, class_name, output_base_path)
+
     exit(0)
     # detections per class histogram
     class_counts = count_detections_per_class(annotation_dir_path)
