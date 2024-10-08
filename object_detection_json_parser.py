@@ -160,45 +160,47 @@ def plot_confidence_histogram(confidence_scores):
     plt.show()
 
 
-def extract_gun_frames(annotation_file: Path, threshold=0.5):
-    gun_frames = []
+def extract_class_frames(annotation_file: Path, threshold=0.5, class_name="gun"):
+    class_frames = []
 
     annotation = read_annotation_file(annotation_dir_path / Path(annotation_file))
     for frame_name, frame in annotation.items():
         for obj in frame["objects"]:
-            if obj["class"] == "gun" and obj["confidence"] > threshold:
+            if obj["class"] == class_name and obj["confidence"] > threshold and obj["confidence"] <= threshold + 0.1:
                 # frame_name, frame_data, video_name
-                gun_frames.append((frame_name, frame, annotation_file.stem.split("_object_detection")[0]))
+                class_frames.append((frame_name, frame, annotation_file.stem.split("_object_detection")[0]))
                 break
 
-    return gun_frames
+    return class_frames
 
 
-def draw_bounding_boxes(frame, objs, threshold=0.5):
+def draw_bounding_boxes(frame, objs, threshold=0.5, class_name="gun"):
     for obj in objs:
-        if obj["class"] == "gun" and obj["confidence"] > threshold:
+        if obj["class"] == class_name and obj["confidence"] > threshold and obj["confidence"] <= threshold + 0.1:
             bbox = obj["box"]
             xmin, ymin, xmax, ymax = map(int, bbox)
             color = (0, 0, 255)
             cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), color, 2)
-            cv2.putText(
-                frame, f"gun \n{obj['confidence']:.2f}", (xmin, ymin - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1
-            )
+            cv2.putText(frame, class_name, (xmin, ymin - 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            cv2.putText(frame, f"{obj['confidence']:.2f}", (xmin, ymin - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
     return frame
 
 
-def create_collage_plot(gun_frames, images_base_dir, threshold=0.2, output_path=None):
+def create_collage_plot(frames, images_base_dir, class_name, threshold=0.2, output_path=None):
     all_frames = []
-    for frame_name, frame_data, video_name in gun_frames:
+    for frame_name, frame_data, video_name in frames:
         frame = cv2.imread(str(os.path.join(images_base_dir.as_posix(), video_name, "sampled_images", frame_name)))
         if frame is not None:
-            frame = draw_bounding_boxes(frame, frame_data["objects"], threshold=threshold)
+            frame = draw_bounding_boxes(frame, frame_data["objects"], threshold=threshold, class_name=class_name)
             all_frames.append(frame)
 
     if all_frames:
-        # Determine the number of rows needed
-        max_images_per_row = 10
-        num_rows = (len(all_frames) + max_images_per_row - 1) // max_images_per_row
+        import math
+
+        # Determine the number of rows and columns needed
+        total_images = len(all_frames)
+        num_cols = math.ceil(math.sqrt(total_images))
+        num_rows = math.ceil(total_images / num_cols)
 
         # Get the dimensions of the images
         img_height, img_width, _ = all_frames[0].shape
@@ -207,12 +209,12 @@ def create_collage_plot(gun_frames, images_base_dir, threshold=0.2, output_path=
 
         # Create a blank image with the appropriate size
         row_height = img_height + white_space_row
-        row_width = (img_width + white_space_col) * max_images_per_row - white_space_col
+        row_width = (img_width + white_space_col) * num_cols - white_space_col
         long_image = np.ones((num_rows * row_height - white_space_row, row_width, 3), dtype=np.uint8) * 255
 
         for idx, frame in enumerate(all_frames):
-            row_idx = idx // max_images_per_row
-            col_idx = idx % max_images_per_row
+            row_idx = idx // num_cols
+            col_idx = idx % num_cols
             start_x = col_idx * (img_width + white_space_col)
             start_y = row_idx * row_height
             long_image[start_y : start_y + img_height, start_x : start_x + img_width] = frame
@@ -220,36 +222,40 @@ def create_collage_plot(gun_frames, images_base_dir, threshold=0.2, output_path=
         cv2.imwrite(output_path, long_image)
 
 
-def process_annotation_file(annotation_file, images_base_dir, output_save_base_path, threshold=0.2):
-    gun_frames = extract_gun_frames(annotation_file, threshold)
+def process_annotation_file(annotation_file, images_base_dir, output_save_base_path, class_name, threshold=0.2):
+    frames = extract_class_frames(annotation_file, threshold, class_name)
     # print(f"images_base_dir: {images_base_dir}")
 
-    output_path = Path(output_save_base_path, f"gun_{Path(annotation_file).stem}.png")
+    output_path = Path(output_save_base_path, f"{class_name}_{Path(annotation_file).stem}.png")
     # print(f"output_path: {output_path}")
-    create_collage_plot(gun_frames, images_base_dir, threshold, output_path)
+    create_collage_plot(frames, images_base_dir, class_name, threshold, output_path)
 
 
 if __name__ == "__main__":
-    annotation_dir_path = Path("/home/ubuntu/Data/json_object_detection")
-    images_base_dir = Path("/home/ubuntu/Data/videos_for_ob")
+    images_base_dir = Path("/home/ubuntu/Data/obj_det_eval_dataset/videos_frame_samples")
+    annotation_dir_path = Path("/home/ubuntu/Data/obj_det_eval_dataset/obj_detection_json")
     annotation_files = [f for f in annotation_dir_path.iterdir() if f.suffix == ".json"]
-    threshold = 0.5
-    th_str = str(threshold).replace(".", "_")
-    output_save_base_path = Path(
-        f"/home/ubuntu/projects/owl-vit-object-detection-evaluation/results/detection_threshold_{th_str}"
-    )
-    os.makedirs(output_save_base_path, exist_ok=True)
-    # process_annotation_file(annotation_files[0], images_base_dir, output_save_base_path, threshold)
-    with ThreadPoolExecutor() as executor:
-        list(
-            tqdm(
-                executor.map(
-                    lambda f: process_annotation_file(f, images_base_dir, output_save_base_path, threshold),
-                    annotation_files,
-                ),
-                total=len(annotation_files),
-            )
+    thresholds = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    class_name = "rifle"
+    for threshold in thresholds:
+        th_str = str(threshold).replace(".", "_")
+        output_save_base_path = Path(
+            f"/home/ubuntu/projects/owl-vit-object-detection-evaluation/results/{class_name}_1000/detection_threshold_{th_str}"
         )
+        os.makedirs(output_save_base_path, exist_ok=True)
+        # process_annotation_file(annotation_files[0], images_base_dir, output_save_base_path, threshold)
+        with ThreadPoolExecutor() as executor:
+            list(
+                tqdm(
+                    executor.map(
+                        lambda f: process_annotation_file(
+                            f, images_base_dir, output_save_base_path, class_name, threshold
+                        ),
+                        annotation_files,
+                    ),
+                    total=len(annotation_files),
+                )
+            )
     exit(0)
     # detections per class histogram
     class_counts = count_detections_per_class(annotation_dir_path)
