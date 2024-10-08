@@ -82,9 +82,10 @@ def calculate_normalized_correlation(annotation_dir_path: Path, save_path=None):
     plt.title("Correlation between Normalized Object Size and Confidence Score")
     plot_name = "normalized_correlation.png"
     if save_path:
-        Path(save_path,plot_name).as_posix()
+        plt.savefig(Path(save_path,plot_name).as_posix())
     else:
         plt.show()
+    plt.close()
 
 
 def count_detections_per_class(annotation_dir_path: Path):
@@ -115,6 +116,7 @@ def plot_detections_per_class(class_counts, save_path=None):
         plt.savefig(Path(save_path,plot_name).as_posix())
     else:
         plt.show()
+    plt.close()
 
 
 def count_detections_per_video(annotation_dir_path: Path):
@@ -139,9 +141,10 @@ def plot_detections_histogram(video_detections, save_path=None):
     plt.title("Histogram of Detections per Video")
     plot_name = "detections_per_video.png"
     if save_path:
-        Path(save_path,plot_name).as_posix()
+        plt.savefig(Path(save_path,plot_name).as_posix())
     else:
         plt.show()
+    plt.close()
 
 
 def extract_confidence_scores(annotation_dir_path: Path):
@@ -172,9 +175,10 @@ def plot_confidence_histogram(confidence_scores, save_path=None):
     plt.legend(loc="upper right")
     plot_name = "confidence_histogram.png"
     if save_path:
-        Path(save_path,plot_name).as_posix()
+        plt.savefig(Path(save_path,plot_name).as_posix())
     else:
         plt.show()
+    plt.close()
 
 
 def extract_class_frames(annotation_file: Path, threshold=0.5, class_name="gun"):
