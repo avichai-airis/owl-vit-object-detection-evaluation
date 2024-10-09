@@ -491,7 +491,7 @@ if __name__ == "__main__":
     plot_graph_base_path = Path(proj_base_dir,output_base_path, "plots")
     class_name = "rifle"
 
-    # BB and confidence scatter plot with density
+    # Bounding box area vs. confidence regression plot with density
     data = extract_bbox_area_and_confidence(annotation_dir_path)
     plot_regression_with_density(data, plot_graph_base_path)
 
