@@ -27,5 +27,5 @@ def copy_object_detection_json(src_dir, dst_dir):
 # Example usage:
 
 source_directory = "/home/ubuntu/Data/obj_det_eval_dataset/videos_frame_samples"
-destination_directory = "/home/ubuntu/Data/obj_det_eval_dataset/obj_detection_json"
+destination_directory = "/home/ubuntu/Data/obj_det_eval_dataset/object_detection_1000_gun_and_knife_json"
 copy_object_detection_json(source_directory, destination_directory)

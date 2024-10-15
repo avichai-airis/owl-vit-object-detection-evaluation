@@ -141,6 +141,7 @@ def plot_detections_histogram(video_detections, save_path=None):
     plt.xlabel("Number of Detections")
     plt.ylabel("Number of Videos")
     plt.title("Histogram of Detections per Video")
+    plt.yscale("log")
     plot_name = "detections_per_video.png"
     plt.tight_layout()
     if save_path:
@@ -263,7 +264,7 @@ def draw_bounding_boxes_for_class_and_confidence_intervals(
     thresholds = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
     for threshold in thresholds:
         th_str = str(threshold).replace(".", "_")
-        output_save_base_path = Path(output_base_path, f"{class_name}_1000/detection_threshold_{th_str}")
+        output_save_base_path = Path(output_base_path, f"{class_name}_1300/detection_threshold_{th_str}")
         os.makedirs(output_save_base_path, exist_ok=True)
         if run_parallel:
             with ThreadPoolExecutor() as executor:
@@ -492,7 +493,7 @@ def plot_regression_with_density(data, save_path=None):
         plt.figure(figsize=(10, 6))
         scatter = plt.scatter(x, y, c=z, s=10, cmap="viridis", alpha=0.5)
         plt.colorbar(scatter, label="Density")
-        sns.regplot(x="area", y="confidence", data=class_data, scatter=False, line_kws={"color": "red"})
+        # sns.regplot(x="area", y="confidence", data=class_data, scatter=False, line_kws={"color": "red"})
         plt.xlabel("Normalized Area")
         plt.ylabel("Confidence Score")
         plt.title(f"Regression Plot with Density for {class_name.capitalize()}")
@@ -514,12 +515,17 @@ if __name__ == "__main__":
     annotation_dir_path = Path(data_base_dir, "json/object_detection_1300_gun_and_knife_json")
     output_base_path = Path(proj_base_dir, "results")
     plot_graph_base_path = Path(proj_base_dir, output_base_path, "plots")
-    class_name = "rifle"
+    classes_name = ["gun", "knife"]
+    # for class_name in classes_name:
+    #     draw_bounding_boxes_for_class_and_confidence_intervals(
+    #         images_base_dir, annotation_dir_path, class_name, output_base_path
+    #     )
 
     # Bounding box area vs. confidence regression plot with density
     print("Bounding box area vs. confidence regression plot")
     data = extract_bbox_area_and_confidence(annotation_dir_path)
     plot_regression_with_density(data, plot_graph_base_path)
+    exit(0)
 
     # Box plots for confidence distribution by size category and class
     print("Box plots for confidence distribution by size category and class")
@@ -540,8 +546,6 @@ if __name__ == "__main__":
     frame_shape = (1080, 1920, 3)  # Example frame shape, adjust as needed
     coords = extract_detection_locations(annotation_dir_path)
     generate_heatmap(coords, frame_shape, plot_graph_base_path)
-
-    # draw_bounding_boxes_for_class_and_confidence_intervals(images_base_dir, annotation_dir_path, class_name, output_base_path)
 
     # detections per class histogram
     print("Detections per class histogram")
