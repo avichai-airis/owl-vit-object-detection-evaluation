@@ -2,6 +2,8 @@ from file_utils import read_annotation_file
 
 import json
 from pathlib import Path
+from matplotlib.patches import Patch
+from collections import defaultdict
 from tqdm import tqdm
 import cv2
 import os
@@ -90,17 +92,16 @@ def calculate_normalized_correlation(annotation_dir_path: Path, save_path=None):
 
 def count_detections_per_class(annotation_dir_path: Path):
     annotation_files = [f for f in os.listdir(annotation_dir_path) if f.endswith(".json")]
-    class_counts = {"gun": 0, "knife": 0}
+    class_counts = defaultdict(int)
 
     for annotation_file in tqdm(annotation_files):
         annotation = read_annotation_file(annotation_dir_path / Path(annotation_file))
         for frame in annotation.values():
             for obj in frame["objects"]:
                 class_name = obj["class"]
-                if class_name in class_counts:
-                    class_counts[class_name] += 1
+                class_counts[class_name] += 1
 
-    return class_counts
+    return dict(class_counts)
 
 
 def plot_detections_per_class(class_counts, save_path=None):
@@ -149,7 +150,7 @@ def plot_detections_histogram(video_detections, save_path=None):
 
 def extract_confidence_scores(annotation_dir_path: Path):
     annotation_files = [f for f in os.listdir(annotation_dir_path) if f.endswith(".json")]
-    confidence_scores = {"gun": [], "knife": []}
+    confidence_scores = defaultdict(list)
 
     for annotation_file in tqdm(annotation_files):
         annotation = read_annotation_file(annotation_dir_path / Path(annotation_file))
@@ -157,17 +158,17 @@ def extract_confidence_scores(annotation_dir_path: Path):
             for obj in frame["objects"]:
                 class_name = obj["class"]
                 conf = obj["confidence"]
-                if class_name in confidence_scores:
-                    confidence_scores[class_name].append(conf)
+                confidence_scores[class_name].append(conf)
 
-    return confidence_scores
+    return dict(confidence_scores)
 
 
 def plot_confidence_histogram(confidence_scores, save_path=None):
-    plt.figure(figsize=(10, 5))
+    plt.figure(figsize=(10, 10))
+    cmap = plt.get_cmap("tab20")  # Use a colormap with distinct colors
 
-    for class_name, scores in confidence_scores.items():
-        plt.hist(scores, bins=10, alpha=0.5, label=class_name)
+    for i, (class_name, scores) in enumerate(confidence_scores.items()):
+        plt.hist(scores, bins=10, alpha=0.5, label=class_name, color=cmap(i))
 
     plt.xlabel("Confidence Score")
     plt.ylabel("Number of Detections")
@@ -175,7 +176,7 @@ def plot_confidence_histogram(confidence_scores, save_path=None):
     plt.legend(loc="upper right")
     plot_name = "confidence_histogram.png"
     if save_path:
-        plt.savefig(Path(save_path,plot_name).as_posix())
+        plt.savefig(Path(save_path, plot_name).as_posix())
     else:
         plt.show()
     plt.close()
@@ -410,14 +411,80 @@ def plot_heatmap(data, save_path=None):
 
 
 def categorize_size(area):
+    # Small: less than 1% of the frame area
     if area < 0.01:
         return 'small'
+    # Medium: between 1% and 10% of the frame area
     elif area < 0.1:
         return 'medium'
+    # Large: more than 10% of the frame area
     else:
         return 'large'
+def plot_combined_box_plots(data, save_path=None):
+    size_categories = {'small': [], 'medium': [], 'large': []}
+    class_names = set()
+
+    for area, confidence, class_name in data:
+        size_category = categorize_size(area)
+        size_categories[size_category].append((confidence, class_name))
+        class_names.add(class_name)
+
+    class_names = sorted(class_names)
+    size_labels = ['small', 'medium', 'large']
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c']  # Colors for small, medium, large
+
+    fig, ax = plt.subplots(figsize=(18, 6))
+    box_data = []
+    positions = []
+    labels = []
+    pos = 1
+    class_mid_positions = []
+
+    for class_name in class_names:
+        class_positions = []
+        class_has_data = False
+        for size_label in size_labels:
+            class_confidences = [conf for conf, cls in size_categories[size_label] if cls == class_name]
+            if class_confidences:
+                box_data.append(class_confidences)
+                positions.append(pos)
+                class_positions.append(pos)
+                class_has_data = True
+            pos += 1
+        if class_has_data:
+            labels.append(class_name)
+            class_mid_positions.append(sum(class_positions) / len(class_positions))
+            ax.axvline(x=pos - 0.5, color='gray', linestyle='--', alpha=0.5)  # Add a vertical line between classes
+        pos += 1  # Add space between different classes
+
+    box = ax.boxplot(box_data, positions=positions, patch_artist=True, medianprops=dict(color="red"))
+    for patch, color in zip(box['boxes'], colors * len(class_names)):
+        patch.set_facecolor(color)
+
+    # Set tick positions to the middle of each class group
+    ax.set_xticks(class_mid_positions)
+    ax.set_xticklabels(labels, rotation=45, ha='center')
+
+    # Adjust the xlim to ensure all boxes are visible
+    ax.set_xlim(0, pos)
+
+    legend_patches = [Patch(color=color, label=size_label.capitalize()) for color, size_label in zip(colors, size_labels)]
+    ax.legend(handles=legend_patches, loc='upper right')
+    ax.set_title('Confidence Distribution by Size Category and Class')
+    ax.set_xlabel('Class')
+    ax.set_ylabel('Confidence Score')
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plot_name = 'combined_confidence_distribution_box_plots.png'
+    if save_path:
+        plt.savefig(Path(save_path, plot_name).as_posix())
+    else:
+        plt.show()
+    plt.close()
+
 
 def plot_box_plots(data, save_path=None):
+
     size_categories = {'small': [], 'medium': [], 'large': []}
     class_names = set()
 
@@ -428,20 +495,30 @@ def plot_box_plots(data, save_path=None):
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 6), sharey=True)
     size_labels = ['small', 'medium', 'large']
+    size_descriptions = [
+        '< 1% frame area',
+        '1%-10% frame area',
+        '> 10% frame area'
+    ]
+    colors = plt.cm.tab20.colors  # Use a colormap with distinct colors
 
-    for ax, size_label in zip(axes, size_labels):
+    for ax, size_label, size_desc in zip(axes, size_labels, size_descriptions):
         box_data = []
         labels = []
         for class_name in class_names:
             class_confidences = [conf for conf, cls in size_categories[size_label] if cls == class_name]
             box_data.append(class_confidences)
             labels.append(class_name)
-        ax.boxplot(box_data, labels=labels)
-        ax.set_title(f'{size_label.capitalize()} Objects')
+        box = ax.boxplot(box_data, labels=labels, patch_artist=True)
+        for patch, color in zip(box['boxes'], colors):
+            patch.set_facecolor(color)
+        ax.set_title(f'{size_label.capitalize()} Objects\n({size_desc})')
+        ax.set_xticklabels(labels, rotation=45, ha='right')
         ax.set_xlabel('Class')
         ax.set_ylabel('Confidence Score')
 
     plt.suptitle('Confidence Distribution by Size Category and Class')
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
     plot_name = 'confidence_distribution_box_plots.png'
     if save_path:
         plt.savefig(Path(save_path, plot_name).as_posix())
@@ -475,6 +552,7 @@ def plot_regression_with_density(data, save_path=None):
         plt.title(f'Regression Plot with Density for {class_name.capitalize()}')
         plot_name = f'regression_plot_density_{class_name}.png'
         if save_path:
+            os.makedirs(save_path, exist_ok=True)
             plt.savefig(Path(save_path, plot_name).as_posix())
         else:
             plt.show()
@@ -492,21 +570,26 @@ if __name__ == "__main__":
     class_name = "rifle"
 
     # Bounding box area vs. confidence regression plot with density
+    print("Bounding box area vs. confidence regression plot")
     data = extract_bbox_area_and_confidence(annotation_dir_path)
     plot_regression_with_density(data, plot_graph_base_path)
 
     # Box plots for confidence distribution by size category and class
+    print("Box plots for confidence distribution by size category and class")
     data = extract_bbox_area_and_confidence(annotation_dir_path)
     plot_box_plots(data, plot_graph_base_path)
     # Width, height, and confidence heatmap
+    print("Width, height, and confidence heatmap")
     data = extract_width_height_confidence(annotation_dir_path)
     plot_heatmap(data, plot_graph_base_path)
 
     # Scatter plot of normalized bounding box area vs. confidence score
+    print("Scatter plot of normalized bounding box area vs. confidence score")
     data = extract_bbox_area_and_confidence(annotation_dir_path)
     plot_scatter(data, plot_graph_base_path)
 
     # Heatmap of detection locations
+    print("Heatmap of detection locations")
     frame_shape = (1080, 1920, 3)  # Example frame shape, adjust as needed
     coords = extract_detection_locations(annotation_dir_path)
     generate_heatmap(coords, frame_shape, plot_graph_base_path)
@@ -514,14 +597,17 @@ if __name__ == "__main__":
     # draw_bounding_boxes_for_class_and_confidence_intervals(images_base_dir, annotation_dir_path, class_name, output_base_path)
 
     # detections per class histogram
+    print("Detections per class histogram")
     class_counts = count_detections_per_class(annotation_dir_path)
     plot_detections_per_class(class_counts, plot_graph_base_path)
 
     # confidence histogram
+    print("Confidence histogram")
     confidence_scores = extract_confidence_scores(annotation_dir_path)
     plot_confidence_histogram(confidence_scores, plot_graph_base_path)
 
     # detections per video histogram
+    print("Detections per video histogram")
     video_detections = count_detections_per_video(annotation_dir_path)
     plot_detections_histogram(video_detections, plot_graph_base_path)
 
