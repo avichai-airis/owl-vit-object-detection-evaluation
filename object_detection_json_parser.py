@@ -83,6 +83,7 @@ def calculate_normalized_correlation(annotation_dir_path: Path, save_path=None):
     plt.ylabel("Confidence Score")
     plt.title("Correlation between Normalized Object Size and Confidence Score")
     plot_name = "normalized_correlation.png"
+    plt.tight_layout()
     if save_path:
         plt.savefig(Path(save_path,plot_name).as_posix())
     else:
@@ -113,6 +114,7 @@ def plot_detections_per_class(class_counts, save_path=None):
     plt.ylabel("Number of Detections")
     plt.title("Number of Detections per Class (Rifle vs. Knife)")
     plot_name = "detections_per_class.png"
+    plt.tight_layout()
     if save_path:
         plt.savefig(Path(save_path,plot_name).as_posix())
     else:
@@ -140,7 +142,9 @@ def plot_detections_histogram(video_detections, save_path=None):
     plt.xlabel("Number of Detections")
     plt.ylabel("Number of Videos")
     plt.title("Histogram of Detections per Video")
+    plt.yscale("log")
     plot_name = "detections_per_video.png"
+    plt.tight_layout()
     if save_path:
         plt.savefig(Path(save_path,plot_name).as_posix())
     else:
@@ -175,6 +179,7 @@ def plot_confidence_histogram(confidence_scores, save_path=None):
     plt.title("Histogram of Confidence Scores by Class")
     plt.legend(loc="upper right")
     plot_name = "confidence_histogram.png"
+    plt.tight_layout()
     if save_path:
         plt.savefig(Path(save_path, plot_name).as_posix())
     else:
@@ -300,7 +305,7 @@ def generate_heatmap(coords, frame_shape, save_path):
     from mpl_toolkits.axes_grid1 import make_axes_locatable
     heatmap = np.zeros(frame_shape[:2], dtype=np.float32)
 
-    for (norm_xmin, norm_ymin, norm_xmax, norm_ymax) in coords:
+    for norm_xmin, norm_ymin, norm_xmax, norm_ymax in coords:
         xmin = int(norm_xmin * frame_shape[1])
         ymin = int(norm_ymin * frame_shape[0])
         xmax = int(norm_xmax * frame_shape[1])
@@ -323,6 +328,7 @@ def generate_heatmap(coords, frame_shape, save_path):
     cbar.set_label('Detection Density')
 
     plot_name = "detection_location_heatmap.png"
+    plt.tight_layout()
     if save_path:
         plt.savefig(Path(save_path, plot_name).as_posix())
     else:
@@ -402,7 +408,8 @@ def plot_heatmap(data, save_path=None):
     plt.ylabel('Normalized Height')
     plt.title('Heatmap of Normalized Width vs. Height with Confidence')
 
-    plot_name = 'width_height_confidence_heatmap.png'
+    plot_name = "width_height_confidence_heatmap.png"
+    plt.tight_layout()
     if save_path:
         plt.savefig(Path(save_path, plot_name).as_posix())
     else:
