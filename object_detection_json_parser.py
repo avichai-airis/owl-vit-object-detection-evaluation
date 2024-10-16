@@ -427,6 +427,8 @@ def categorize_size(area):
     # Large: more than 10% of the frame area
     else:
         return 'large'
+
+
 def plot_combined_box_plots(data, save_path=None):
     size_categories = {'small': [], 'medium': [], 'large': []}
     class_names = set()
@@ -445,37 +447,39 @@ def plot_combined_box_plots(data, save_path=None):
     positions = []
     labels = []
     pos = 1
-    class_mid_positions = []
 
     for class_name in class_names:
         class_positions = []
-        class_has_data = False
         for size_label in size_labels:
             class_confidences = [conf for conf, cls in size_categories[size_label] if cls == class_name]
-            if class_confidences:
-                box_data.append(class_confidences)
-                positions.append(pos)
-                class_positions.append(pos)
-                class_has_data = True
+            box_data.append(class_confidences)  # Add empty list if no data
+            positions.append(pos)
+            class_positions.append(pos)
             pos += 1
-        if class_has_data:
-            labels.append(class_name)
-            class_mid_positions.append(sum(class_positions) / len(class_positions))
-            ax.axvline(x=pos - 0.5, color='gray', linestyle='--', alpha=0.5)  # Add a vertical line between classes
+        labels.append(class_name)
+        ax.axvline(x=pos - 0.5, color='gray', linestyle='--', alpha=0.5)  # Add a vertical line between classes
         pos += 1  # Add space between different classes
 
-    box = ax.boxplot(box_data, positions=positions, patch_artist=True, medianprops=dict(color="red"))
-    for patch, color in zip(box['boxes'], colors * len(class_names)):
-        patch.set_facecolor(color)
+    box = ax.boxplot(box_data, positions=positions, patch_artist=True, showfliers=False)
+
+    # Color the boxes based on size category
+    for i, patch in enumerate(box['boxes']):
+        patch.set_facecolor(colors[i % 3])
 
     # Set tick positions to the middle of each class group
-    ax.set_xticks(class_mid_positions)
+    tick_positions = []
+    for i in range(0, len(positions), len(size_labels)):
+        if i + len(size_labels) <= len(positions):
+            tick_positions.append(sum(positions[i:i + len(size_labels)]) / len(size_labels))
+
+    ax.set_xticks(tick_positions)
     ax.set_xticklabels(labels, rotation=45, ha='center')
 
     # Adjust the xlim to ensure all boxes are visible
     ax.set_xlim(0, pos)
 
-    legend_patches = [Patch(color=color, label=size_label.capitalize()) for color, size_label in zip(colors, size_labels)]
+    legend_patches = [Patch(color=color, label=size_label.capitalize()) for color, size_label in
+                      zip(colors, size_labels)]
     ax.legend(handles=legend_patches, loc='upper right')
     ax.set_title('Confidence Distribution by Size Category and Class')
     ax.set_xlabel('Class')
@@ -488,7 +492,6 @@ def plot_combined_box_plots(data, save_path=None):
     else:
         plt.show()
     plt.close()
-
 
 def plot_box_plots(data, save_path=None):
 
