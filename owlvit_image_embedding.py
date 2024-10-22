@@ -17,6 +17,7 @@ from src.models import TextZeroShotDetectionModule
 from src.preprocessing import prepare_image_queries, closest_divisible_size
 from sklearn.cluster import DBSCAN
 from scipy.stats import gaussian_kde
+from tqdm import tqdm
 
 
 def normalize_vectors(image_features):
@@ -83,19 +84,10 @@ def get_model():
     # Load the model weights
     variables = model.load_variables(config.init_from.checkpoint_path)
 
-    @jax.jit
-    def predict(image, query):
-        return model.apply(variables, image, query)
-
-    return model, variables, predict
+    return model, variables
 
 
-def generate_image_embeddings(
-        source_image, model: TextZeroShotDetectionModule, variables: Dict
-):
-    """
-    Generate text embeddings for the given text queries using the model.
-    """
+def create_jitted_functions(model, variables):
     image_embedder = jax.jit(
         functools.partial(
             model.apply, variables, train=False, method=model.image_embedder
@@ -111,20 +103,35 @@ def generate_image_embeddings(
     box_predictor = jax.jit(
         functools.partial(model.apply, variables, method=model.box_predictor)
     )
-    feature_map = image_embedder(source_image[None, ...])
 
+    return image_embedder, objectness_predictor, box_predictor
+
+
+def embed_image(source_image, image_embedder):
+    feature_map = image_embedder(source_image[None, ...])
     b, h, w, d = feature_map.shape
     image_features = feature_map.reshape(b, h * w, d)
+    return feature_map, image_features
 
+
+def predict_objectness(image_features, objectness_predictor):
     objectnesses = objectness_predictor(image_features)['objectness_logits']
+    return sigmoid(np.array(objectnesses[0]))
 
+
+def predict_boxes(image_features, feature_map, box_predictor):
     source_boxes = box_predictor(
         image_features=image_features, feature_map=feature_map
     )['pred_boxes']
-    objectnesses = sigmoid(np.array(objectnesses[0]))
-    source_boxes = np.array(source_boxes[0])
+    return np.array(source_boxes[0])
 
+
+def generate_image_embeddings(source_image, image_embedder, objectness_predictor, box_predictor):
+    feature_map, image_features = embed_image(source_image, image_embedder)
+    objectnesses = predict_objectness(image_features, objectness_predictor)
+    source_boxes = predict_boxes(image_features, feature_map, box_predictor)
     return normalize_vectors(np.array(image_features[0])), objectnesses, source_boxes
+
 
 
 # Assuming objectnesses is a numpy array with 3600 scores
@@ -175,8 +182,6 @@ def visualize_image_features_dbscan(image_features, eps=0.25, min_samples=10, sa
     dbscan = DBSCAN(eps=eps, min_samples=min_samples, metric='cosine')
     clusters = dbscan.fit_predict(image_features)
 
-
-
     # Reduce dimensionality to 2D using t-SNE
     tsne = TSNE(n_components=2, random_state=42)
     image_features_2d = tsne.fit_transform(image_features)
@@ -203,7 +208,7 @@ def visualize_image_features_dbscan(image_features, eps=0.25, min_samples=10, sa
     plt.close()
 
 
-def plot_bb_on_image(source_image, objectnesses, objectness_threshold, save_path):
+def plot_bb_on_image(source_image,source_boxes, objectnesses, objectness_threshold, save_path):
     fig, ax = plt.subplots(1, 1, figsize=(8, 8))
     ax.imshow(source_image, extent=(0, 1, 1, 0))
     ax.set_axis_off()
@@ -322,16 +327,47 @@ def dbscan_clustering_example(save_path=None):
         plt.show()
     plt.close()
 
-if __name__ == '__main__':
+
+def process_image(image_path, image_embedder, objectness_predictor, box_predictor, objectness_threshold):
+    source_image, resize_image, query_image = read_image(image_path, 16, 960)
+    image_features, objectnesses, source_boxes = generate_image_embeddings(query_image, image_embedder,
+                                                                           objectness_predictor, box_predictor)
+
+    # Filter out vectors with objectness score smaller than the threshold
+    filtered_features = image_features[objectnesses > objectness_threshold]
+    return filtered_features
+
+
+def process_images_in_folder(folder_path, model, variables, objectness_threshold=0.1, run_in_parallel=True):
+    from concurrent.futures import ThreadPoolExecutor
+    # get jittered functions
+    image_embedder, objectness_predictor, box_predictor = create_jitted_functions(model, variables)
+
+    image_files = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if
+                   f.endswith(".png") or f.endswith(".jpg")]
+    if run_in_parallel:
+        with ThreadPoolExecutor() as executor:
+            results = list(tqdm(executor.map(
+                lambda f: process_image(f, image_embedder, objectness_predictor, box_predictor, objectness_threshold),
+                image_files), total=len(image_files)))
+    else:
+        results = []
+        for f in tqdm(image_files):
+            results.append(process_image(f, image_embedder, objectness_predictor, box_predictor, objectness_threshold))
+
+    return np.vstack(results)
+
+
+def main():
     objectness_threshold = 0.1
     save_path = "/home/ubuntu/Data/video_for_debug_sampling/dog_example/sampled_images"
-    model, variables, predict = get_model()
+    model, variables = get_model()
     image_path = "/home/ubuntu/Data/video_for_debug_sampling/dog_example/sampled_images/dog.png"
     source_image, resize_image, query_image = read_image(image_path, 16, 960)
     # dbscan_clustering_example(save_path)
     image_features, objectnesses, source_boxes = generate_image_embeddings(query_image, model, variables)
 
-    plot_bb_on_image(resize_image, objectnesses, objectness_threshold, save_path)
+    plot_bb_on_image(resize_image,source_boxes, objectnesses, objectness_threshold, save_path)
     print("image_features:", image_features.shape)
     print("objectnesses:", objectnesses.shape)
     print("source_boxes:", source_boxes.shape)
@@ -343,3 +379,23 @@ if __name__ == '__main__':
     visualize_image_features_kmeans(image_features, 5, save_path)
     visualize_image_features_dbscan(image_features, 0.01, 10, save_path)
     plot_correlation_objectness_bbox_size_hexbin(objectnesses, source_boxes, save_path)
+
+
+if __name__ == '__main__':
+    objectness_threshold = 0.1
+    save_npy_path = os.path.join('/home/ubuntu/Data/video_for_debug_sampling/object_video_5_vectors/vectors',
+                                 'all_image_features_test.npy')
+    save_path = "/home/ubuntu/Data/video_for_debug_sampling/object_video_5_vectors/plots"
+    # check if the file exists
+    if os.path.exists(save_npy_path):
+        all_image_features = np.load(save_npy_path)
+
+    else:
+        folder_path = "/home/ubuntu/Data/video_for_debug_sampling/object_video_5/sampled_images"
+        model, variables = get_model()
+        image_embedder, objectness_predictor, box_predictor = create_jitted_functions(model, variables)
+        all_image_features = process_images_in_folder(folder_path, model, variables, objectness_threshold, run_in_parallel=True)
+        # save the image features
+        np.save(save_npy_path, all_image_features)
+
+    visualize_image_features_dbscan(all_image_features, eps=0.01, min_samples=5, save_path=save_path)
