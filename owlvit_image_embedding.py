@@ -18,6 +18,10 @@ from src.preprocessing import prepare_image_queries, closest_divisible_size
 from sklearn.cluster import DBSCAN
 from scipy.stats import gaussian_kde
 from tqdm import tqdm
+import umap
+import time
+import hdbscan
+from src.postprocessing import box_cxcywh_to_xyxy
 
 
 def normalize_vectors(image_features):
@@ -133,7 +137,6 @@ def generate_image_embeddings(source_image, image_embedder, objectness_predictor
     return normalize_vectors(np.array(image_features[0])), objectnesses, source_boxes
 
 
-
 # Assuming objectnesses is a numpy array with 3600 scores
 def plot_objectness_distribution(objectnesses, save_path=None):
     plt.figure(figsize=(10, 6))
@@ -202,13 +205,14 @@ def visualize_image_features_dbscan(image_features, eps=0.25, min_samples=10, sa
 
     # Save or show the plot
     if save_path:
-        plt.savefig(os.path.join(save_path, 'image_features_clustering_dbscan.png'))
+        plt.savefig(
+            os.path.join(save_path, f'eps_{eps}_min_samples_{min_samples}_image_features_clustering_dbscan.png'))
     else:
         plt.show()
     plt.close()
 
 
-def plot_bb_on_image(source_image,source_boxes, objectnesses, objectness_threshold, save_path):
+def plot_bb_on_image(source_image, source_boxes, objectnesses, objectness_threshold, image_name, save_path):
     fig, ax = plt.subplots(1, 1, figsize=(8, 8))
     ax.imshow(source_image, extent=(0, 1, 1, 0))
     ax.set_axis_off()
@@ -242,7 +246,7 @@ def plot_bb_on_image(source_image,source_boxes, objectnesses, objectness_thresho
     ax.set_ylim(1, 0)
     # save the plot
     plt.tight_layout()
-    plt.savefig(os.path.join(save_path, 'bounding_boxes.png'))
+    plt.savefig(os.path.join(save_path, f'{image_name}_bounding_boxes.png'))
     plt.close(fig)
 
 
@@ -319,7 +323,7 @@ def dbscan_clustering_example(save_path=None):
     plt.xlabel('Feature 1')
     plt.ylabel('Feature 2')
     plt.title('DBSCAN Clustering on Synthetic Data')
-    plt.legend()
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.grid(True)
     if save_path:
         plt.savefig(os.path.join(save_path, 'dbscan_clustering_example.png'))
@@ -335,7 +339,8 @@ def process_image(image_path, image_embedder, objectness_predictor, box_predicto
 
     # Filter out vectors with objectness score smaller than the threshold
     filtered_features = image_features[objectnesses > objectness_threshold]
-    return filtered_features
+    filtered_boxes = source_boxes[objectnesses > objectness_threshold]
+    return filtered_features, filtered_boxes, resize_image, Path(image_path).stem
 
 
 def process_images_in_folder(folder_path, model, variables, objectness_threshold=0.1, run_in_parallel=True):
@@ -345,6 +350,11 @@ def process_images_in_folder(folder_path, model, variables, objectness_threshold
 
     image_files = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if
                    f.endswith(".png") or f.endswith(".jpg")]
+    all_features = []
+    all_boxes = []
+    all_image_names = []
+    feature_intervals = []
+
     if run_in_parallel:
         with ThreadPoolExecutor() as executor:
             results = list(tqdm(executor.map(
@@ -355,19 +365,29 @@ def process_images_in_folder(folder_path, model, variables, objectness_threshold
         for f in tqdm(image_files):
             results.append(process_image(f, image_embedder, objectness_predictor, box_predictor, objectness_threshold))
 
-    return np.vstack(results)
+    current_index = 0
+    for features, boxes, image, image_name in results:
+        all_features.append(features)
+        all_boxes.append(boxes)
+        all_image_names.append(image_name)
+        feature_intervals.append((current_index, current_index + len(features)))
+        current_index += len(features)
+
+    return np.vstack(all_features), all_boxes, all_image_names, feature_intervals
 
 
 def main():
     objectness_threshold = 0.1
-    save_path = "/home/ubuntu/Data/video_for_debug_sampling/dog_example/sampled_images"
+    save_path = "/home/ubuntu/Data/video_for_debug_sampling/car_and_person/sampled_images"
+    image_path = "/home/ubuntu/Data/video_for_debug_sampling/car_and_person/sampled_images/"
     model, variables = get_model()
-    image_path = "/home/ubuntu/Data/video_for_debug_sampling/dog_example/sampled_images/dog.png"
+    image_embedder, objectness_predictor, box_predictor = create_jitted_functions(model, variables)
     source_image, resize_image, query_image = read_image(image_path, 16, 960)
     # dbscan_clustering_example(save_path)
-    image_features, objectnesses, source_boxes = generate_image_embeddings(query_image, model, variables)
+    image_features, objectnesses, source_boxes = generate_image_embeddings(query_image, image_embedder,
+                                                                           objectness_predictor, box_predictor)
 
-    plot_bb_on_image(resize_image,source_boxes, objectnesses, objectness_threshold, save_path)
+    plot_bb_on_image(resize_image, source_boxes, objectnesses, objectness_threshold, save_path)
     print("image_features:", image_features.shape)
     print("objectnesses:", objectnesses.shape)
     print("source_boxes:", source_boxes.shape)
@@ -381,21 +401,151 @@ def main():
     plot_correlation_objectness_bbox_size_hexbin(objectnesses, source_boxes, save_path)
 
 
-if __name__ == '__main__':
-    objectness_threshold = 0.1
-    save_npy_path = os.path.join('/home/ubuntu/Data/video_for_debug_sampling/object_video_5_vectors/vectors',
-                                 'all_image_features_test.npy')
-    save_path = "/home/ubuntu/Data/video_for_debug_sampling/object_video_5_vectors/plots"
-    # check if the file exists
-    if os.path.exists(save_npy_path):
-        all_image_features = np.load(save_npy_path)
+def visualize_image_features_hdbscan(image_features, boxes, images_folder_path, image_names,feature_intervals, min_cluster_size=1, save_path=None):
+    # Reduce dimensionality to 2D using UMAP
+    umap_reducer = umap.UMAP(n_neighbors=15, n_components=2, metric='cosine', n_jobs=-1)
+    image_features_2d = umap_reducer.fit_transform(image_features)
 
+    # Apply HDBSCAN clustering
+    hdbscan_clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size)
+    clusters = hdbscan_clusterer.fit_predict(image_features_2d)
+
+    # Plot the clustered data
+    plt.figure(figsize=(10, 6))
+    unique_clusters = np.unique(clusters)
+    for cluster in unique_clusters:
+        cluster_points = image_features_2d[clusters == cluster]
+        plt.scatter(cluster_points[:, 0], cluster_points[:, 1], label=f'Cluster {cluster}', alpha=0.7)
+
+    plt.xlabel('Feature 1')
+    plt.ylabel('Feature 2')
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.title('UMAP Visualization of Image Features with HDBSCAN Clustering')
+    plt.grid(True)
+    plt.tight_layout()
+
+    # Save or show the plot
+    if save_path:
+        plt.savefig(os.path.join(save_path, 'image_features_hdbscan.png'))
     else:
-        folder_path = "/home/ubuntu/Data/video_for_debug_sampling/object_video_5/sampled_images"
-        model, variables = get_model()
-        image_embedder, objectness_predictor, box_predictor = create_jitted_functions(model, variables)
-        all_image_features = process_images_in_folder(folder_path, model, variables, objectness_threshold, run_in_parallel=True)
-        # save the image features
-        np.save(save_npy_path, all_image_features)
+        plt.show()
+    plt.close()
 
-    visualize_image_features_dbscan(all_image_features, eps=0.01, min_samples=5, save_path=save_path)
+    # Plot bounding boxes with cluster numbers
+    for image_name, image_boxes, feature_interval in zip(image_names, boxes, feature_intervals):
+        image_path = os.path.join(images_folder_path, f'{image_name}.png')
+        original_image = skimage_io.imread(image_path)[:, :, :3]
+        height, width, _ = original_image.shape
+        fig, ax = plt.subplots(1, 1, figsize=(width / 100, height / 100), dpi=100)
+        ax.imshow(original_image)
+        ax.set_axis_off()
+        image_clusters = clusters[feature_interval[0]:feature_interval[1]]
+        for box, cluster in zip(list(image_boxes), image_clusters):
+            xtl, ytl, xbr, ybr = box_cxcywh_to_xyxy(box, (width, height))
+            ax.plot(
+                [xtl, xbr, xbr, xtl, xtl],
+                [ytl, ytl, ybr, ybr, ytl],
+                color='lime',
+            )
+            ax.text(
+                xtl + 0.015 * width,
+                ybr - 0.015 * height,
+                f'Cluster: {cluster}',
+                ha='left',
+                va='bottom',
+                color='black',
+                bbox={
+                    'facecolor': 'white',
+                    'edgecolor': 'lime',
+                    'boxstyle': 'square,pad=.3',
+                },
+            )
+
+        ax.set_xlim(0, width)
+        ax.set_ylim(height, 0)
+        plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        plt.savefig(os.path.join(save_path, f'{image_name}_bounding_boxes_with_clusters.png'), bbox_inches='tight', pad_inches=0)
+        plt.close(fig)
+
+
+def visualize_image_features_umap(image_features, eps, min_samples, save_path=None):
+    print(f"Start UMAP dimensionality reduction...")
+    start_time = time.time()
+    # Reduce dimensionality to 2D using UMAP
+    umap_reducer = umap.UMAP(n_neighbors=5, n_components=2, metric='cosine', n_jobs=-1)
+    image_features_2d = umap_reducer.fit_transform(image_features)
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print(f"UMAP dimensionality reduction took {elapsed_time:.2f} seconds")
+    # add dbscan clustering
+    # Apply DBSCAN clustering in the original vector space
+    dbscan = DBSCAN(eps=eps, min_samples=min_samples)
+    clusters = dbscan.fit_predict(image_features)
+    # draw each cluster with different color
+    plt.figure(figsize=(10, 6))
+    unique_clusters = np.unique(clusters)
+    for cluster in unique_clusters:
+        cluster_points = image_features_2d[clusters == cluster]
+        plt.scatter(cluster_points[:, 0], cluster_points[:, 1], label=f'Cluster {cluster}', alpha=0.7)
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    # # Plot the clustered data
+    # plt.figure(figsize=(10, 6))
+    # plt.scatter(image_features_2d[:, 0], image_features_2d[:, 1], alpha=0.7)
+
+    plt.xlabel('Feature 1')
+    plt.ylabel('Feature 2')
+    plt.title('Umap Visualization of Image Features')
+    plt.grid(True)
+    plt.tight_layout()
+
+    # Save or show the plot
+    if save_path:
+        plt.savefig(os.path.join(save_path, f'eps_{eps}_min_samples_{min_samples}_image_features_umap.png'))
+    else:
+        plt.show()
+    plt.close()
+
+
+def visualize_detected_object_features(objectness_threshold=0.1,
+                                       save_path='/home/ubuntu/Data/video_for_debug_sampling/object_video_5_vectors/plots',
+                                       folder_path='/home/ubuntu/Data/video_for_debug_sampling/object_video_5/sampled_images'):
+    os.makedirs(save_path, exist_ok=True)
+
+    model, variables = get_model()
+    image_features, boxes, image_names,feature_intervals = process_images_in_folder(folder_path, model, variables, objectness_threshold,
+                                                  run_in_parallel=True)
+
+
+    visualize_image_features_hdbscan(image_features, boxes,folder_path ,image_names,feature_intervals, min_cluster_size=2, save_path=save_path)
+
+
+def process_and_plot_bb_on_images(objectness_thresholds, images_path, save_base_path):
+    model, variables = get_model()
+    image_embedder, objectness_predictor, box_predictor = create_jitted_functions(model, variables)
+
+    for objectness_threshold in objectness_thresholds:
+        save_path = os.path.join(save_base_path, f"th_{objectness_threshold}_image_with_bb")
+        os.makedirs(save_path, exist_ok=True)
+
+        # Get all images in the folder
+        image_files = [os.path.join(images_path, f) for f in os.listdir(images_path) if
+                       f.endswith(".png") or f.endswith(".jpg")]
+
+        for image_file in tqdm(image_files):
+            source_image, resize_image, query_image = read_image(image_file, 16, 960)
+            image_features, objectnesses, source_boxes = generate_image_embeddings(query_image, image_embedder,
+                                                                                   objectness_predictor, box_predictor)
+
+            # Get image name from the image path
+            image_name = Path(image_file).stem
+            plot_bb_on_image(resize_image, source_boxes, objectnesses, objectness_threshold, image_name, save_path)
+
+
+if __name__ == '__main__':
+    # visualize_detected_object_features()
+    # process_and_plot_bb_on_images([0.2, 0.3, 0.4, 0.5],
+    #                               "/home/ubuntu/Data/video_for_debug_sampling/car_and_person/sampled_images",
+    #                               "/home/ubuntu/Data/video_for_debug_sampling/car_and_person/th_")
+    visualize_detected_object_features(0.37,
+                                       '/home/ubuntu/Data/video_for_debug_sampling/car_and_person/plots',
+                                       '/home/ubuntu/Data/video_for_debug_sampling/car_and_person/sampled_images')
