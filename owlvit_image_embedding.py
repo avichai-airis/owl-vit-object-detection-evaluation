@@ -401,7 +401,9 @@ def main():
     plot_correlation_objectness_bbox_size_hexbin(objectnesses, source_boxes, save_path)
 
 
-def visualize_image_features_hdbscan(image_features, boxes, images_folder_path, image_names,feature_intervals, min_cluster_size=1, save_path=None):
+def visualize_image_features_hdbscan(image_features, boxes, images_folder_path, image_names,feature_intervals, min_cluster_size=1, save_path=None,objectness_threshold=0.1):
+    save_path = os.path.join(save_path, f'objectness_th_{str(objectness_threshold)}')
+    os.makedirs(save_path, exist_ok=True)
     # Reduce dimensionality to 2D using UMAP
     umap_reducer = umap.UMAP(n_neighbors=15, n_components=2, metric='cosine', n_jobs=-1)
     image_features_2d = umap_reducer.fit_transform(image_features)
@@ -411,15 +413,32 @@ def visualize_image_features_hdbscan(image_features, boxes, images_folder_path, 
     clusters = hdbscan_clusterer.fit_predict(image_features_2d)
 
     # Plot the clustered data
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(26, 15))
     unique_clusters = np.unique(clusters)
     for cluster in unique_clusters:
         cluster_points = image_features_2d[clusters == cluster]
         plt.scatter(cluster_points[:, 0], cluster_points[:, 1], label=f'Cluster {cluster}', alpha=0.7)
+        if cluster != -1:
+            # Calculate the centroid of the cluster
+            centroid = cluster_points.mean(axis=0)
+
+            # Calculate the bounding box of the cluster
+            min_x, min_y = cluster_points.min(axis=0)
+            max_x, max_y = cluster_points.max(axis=0)
+
+            # Calculate the radius of the circle using the diagonal of the bounding box
+            radius = np.sqrt((max_x - min_x) ** 2 + (max_y - min_y) ** 2) / 2
+
+            # Draw the circle
+            circle = plt.Circle(centroid, radius, color='red', fill=False, linestyle='--')
+            plt.gca().add_patch(circle)
+
+            # Add the cluster number outside the circle
+            plt.text(centroid[0] + radius, centroid[1], str(cluster), fontsize=12, weight='bold', color='red')
 
     plt.xlabel('Feature 1')
     plt.ylabel('Feature 2')
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', ncol=3)
     plt.title('UMAP Visualization of Image Features with HDBSCAN Clustering')
     plt.grid(True)
     plt.tight_layout()
@@ -516,7 +535,7 @@ def visualize_detected_object_features(objectness_threshold=0.1,
                                                   run_in_parallel=True)
 
 
-    visualize_image_features_hdbscan(image_features, boxes,folder_path ,image_names,feature_intervals, min_cluster_size=2, save_path=save_path)
+    visualize_image_features_hdbscan(image_features, boxes,folder_path ,image_names,feature_intervals, min_cluster_size=2, save_path=save_path, objectness_threshold=objectness_threshold)
 
 
 def process_and_plot_bb_on_images(objectness_thresholds, images_path, save_base_path):
@@ -546,6 +565,6 @@ if __name__ == '__main__':
     # process_and_plot_bb_on_images([0.2, 0.3, 0.4, 0.5],
     #                               "/home/ubuntu/Data/video_for_debug_sampling/car_and_person/sampled_images",
     #                               "/home/ubuntu/Data/video_for_debug_sampling/car_and_person/th_")
-    visualize_detected_object_features(0.37,
+    visualize_detected_object_features(0.2,
                                        '/home/ubuntu/Data/video_for_debug_sampling/car_and_person/plots',
                                        '/home/ubuntu/Data/video_for_debug_sampling/car_and_person/sampled_images')
