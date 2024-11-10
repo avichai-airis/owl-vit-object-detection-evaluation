@@ -1,0 +1,11 @@
+jax
+jaxlib
+numpy
+matplotlib
+ml_collections
+scipy
+scikit-image
+scikit-learn
+tqdm
+umap-learn
+hdbscan
