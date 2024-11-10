@@ -332,7 +332,7 @@ def dbscan_clustering_example(save_path=None):
     plt.close()
 
 
-def process_image(image_path, image_embedder, objectness_predictor, box_predictor, objectness_threshold):
+def process_image(image_path, image_embedder, objectness_predictor, box_predictor, objectness_threshold, save_path=None):
     source_image, resize_image, query_image = read_image(image_path, 16, 960)
     image_features, objectnesses, source_boxes = generate_image_embeddings(query_image, image_embedder,
                                                                            objectness_predictor, box_predictor)
@@ -340,10 +340,15 @@ def process_image(image_path, image_embedder, objectness_predictor, box_predicto
     # Filter out vectors with objectness score smaller than the threshold
     filtered_features = image_features[objectnesses > objectness_threshold]
     filtered_boxes = source_boxes[objectnesses > objectness_threshold]
+
+    # Plot bounding box size histogram
+    image_name = Path(image_path).stem
+    plot_bbox_size_histogram(image_name, filtered_boxes, resize_image.shape, save_path)
+
     return filtered_features, filtered_boxes, resize_image, Path(image_path).stem
 
 
-def process_images_in_folder(folder_path, model, variables, objectness_threshold=0.1, run_in_parallel=True):
+def process_images_in_folder(folder_path, model, variables, objectness_threshold=0.1, run_in_parallel=True, save_path=None):
     from concurrent.futures import ThreadPoolExecutor
     # get jittered functions
     image_embedder, objectness_predictor, box_predictor = create_jitted_functions(model, variables)
@@ -358,12 +363,12 @@ def process_images_in_folder(folder_path, model, variables, objectness_threshold
     if run_in_parallel:
         with ThreadPoolExecutor() as executor:
             results = list(tqdm(executor.map(
-                lambda f: process_image(f, image_embedder, objectness_predictor, box_predictor, objectness_threshold),
+                lambda f: process_image(f, image_embedder, objectness_predictor, box_predictor, objectness_threshold, save_path),
                 image_files), total=len(image_files)))
     else:
         results = []
         for f in tqdm(image_files):
-            results.append(process_image(f, image_embedder, objectness_predictor, box_predictor, objectness_threshold))
+            results.append(process_image(f, image_embedder, objectness_predictor, box_predictor, objectness_threshold, save_path))
 
     current_index = 0
     for features, boxes, image, image_name in results:
@@ -523,7 +528,25 @@ def visualize_image_features_umap(image_features, eps, min_samples, save_path=No
     else:
         plt.show()
     plt.close()
+def plot_bbox_size_histogram(image_name, source_boxes, image_shape, save_path=None):
+    # Calculate bounding box sizes (area) and normalize by image size
+    bbox_sizes = [(w * h) / (image_shape[0] * image_shape[1]) for _, _, w, h in source_boxes]
 
+    # Plot histogram
+    plt.figure(figsize=(10, 6))
+    plt.hist(bbox_sizes, bins=50, color='blue', alpha=0.7)
+    plt.xlabel('Normalized Bounding Box Size')
+    plt.ylabel('Frequency')
+    plt.title(f'Histogram of Normalized Bounding Box Sizes for {image_name}')
+    plt.grid(True)
+    # log scale
+    plt.yscale('log')
+    # Save or show the plot
+    if save_path:
+        plt.savefig(os.path.join(save_path, f'{image_name}_bbox_size_histogram.png'))
+    else:
+        plt.show()
+    plt.close()
 
 def visualize_detected_object_features(objectness_threshold=0.1,
                                        save_path='/home/ubuntu/Data/video_for_debug_sampling/object_video_5_vectors/plots',
@@ -532,7 +555,7 @@ def visualize_detected_object_features(objectness_threshold=0.1,
 
     model, variables = get_model()
     image_features, boxes, image_names,feature_intervals = process_images_in_folder(folder_path, model, variables, objectness_threshold,
-                                                  run_in_parallel=True)
+                                                  run_in_parallel=True, save_path=save_path)
 
 
     visualize_image_features_hdbscan(image_features, boxes,folder_path ,image_names,feature_intervals, min_cluster_size=2, save_path=save_path, objectness_threshold=objectness_threshold)
