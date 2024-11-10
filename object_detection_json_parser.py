@@ -460,7 +460,7 @@ def plot_combined_box_plots(data, save_path=None):
         ax.axvline(x=pos - 0.5, color='gray', linestyle='--', alpha=0.5)  # Add a vertical line between classes
         pos += 1  # Add space between different classes
 
-    box = ax.boxplot(box_data, positions=positions, patch_artist=True, showfliers=False)
+    box = ax.boxplot(box_data, positions=positions, patch_artist=True, showfliers=True,medianprops=dict(color="red"))
 
     # Color the boxes based on size category
     for i, patch in enumerate(box['boxes']):
@@ -574,10 +574,15 @@ if __name__ == "__main__":
     data_base_dir = Path("C:/Users/avich/projects/Data/objects_tracking_dataset/Ben_data")
 
     images_base_dir = Path(data_base_dir,"videos_frame_samples")
-    annotation_dir_path = Path(data_base_dir,"obj_detection_json")
+    annotation_dir_path = Path(proj_base_dir, "data", "json", "object_detection_300_knife_json")
     output_base_path = Path(proj_base_dir, "results")
-    plot_graph_base_path = Path(proj_base_dir,output_base_path, "plots")
-    class_name = "rifle"
+    plot_graph_base_path = Path(proj_base_dir,output_base_path, "plots_knife_300")
+    # class_name = "rifle"
+    print("Box plots for confidence distribution by size category and class")
+    data = extract_bbox_area_and_confidence(annotation_dir_path)
+    plot_combined_box_plots(data, plot_graph_base_path)
+    plot_box_plots(data, plot_graph_base_path)
+    exit(0)
 
     # Bounding box area vs. confidence regression plot with density
     print("Bounding box area vs. confidence regression plot")
